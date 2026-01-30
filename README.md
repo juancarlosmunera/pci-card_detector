@@ -1,167 +1,176 @@
-# PCI-DSS Cardholder Data Discovery Tool
+# PCI-DSS Cardholder Data Detector
 
-A Python script for detecting credit card numbers in datasets using the Luhn algorithm (mod-10 checksum). Designed for PCI-DSS compliance, risk management, and data discovery exercises.
+[![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-**Remember**: This tool helps you find cardholder data. With great power comes great responsibility!
+A Python tool for detecting credit card numbers in datasets using the Luhn algorithm. Useful for PCI-DSS compliance assessments, scope validation, and cardholder data discovery.
 
-## Features
+Built by a former Qualified Security Assessor (QSA) to solve real-world compliance challenges.
 
-✓ **Luhn Algorithm Validation** - Accurate credit card number detection<br>
-✓ **Modern BIN Support** - Works with 6-8 digit Bank Identification Numbers<br>
-✓ **Multiple File Formats** - CSV, TXT, LOG, JSON, XML, SQL<br>
-✓ **Directory Scanning** - Recursive search through folder structures<br>
-✓ **Card Brand Identification** - Detects Visa, Mastercard, Amex, Discover, etc.<br>
-✓ **Masked Output** - Shows only BIN + last 4 digits for security<br>
-✓ **CSV Reports** - Export findings for compliance documentation<br>
-✓ **CLI and Module** - Use standalone or integrate into your tools<br>
+**📖 [Read the full story](https://cybersecpro.me/posts/finding-hidden-cardholder-data/)** | **📚 [Complete Documentation](https://cybersecpro.me/projects/card-detector/)**
 
-## The Luhn Algorithm and BIN Changes
+---
 
-### Does the Luhn Algorithm Still Work?
+## ✨ Features
 
-**YES!** The Luhn algorithm (mod-10 checksum) is independent of BIN length. Here's why:
+- ✅ **Luhn Algorithm Validation** - Industry-standard card number verification
+- ✅ **Modern BIN Support** - Works with 6-8 digit Bank Identification Numbers
+- ✅ **Multiple File Formats** - CSV, TXT, LOG, JSON, XML, SQL files
+- ✅ **Directory Scanning** - Recursive search through folder structures
+- ✅ **Card Brand Detection** - Visa, Mastercard, Amex, Discover, JCB, Diners
+- ✅ **Secure Output** - Masked numbers (BIN + last 4 only)
+- ✅ **Compliance Reports** - CSV export for audit documentation
+- ✅ **Zero Dependencies** - Uses Python standard library only
+- ✅ **CLI & Module** - Use standalone or integrate into your tools
 
-### What Changed in BINs?
+---
 
-In 2022, the payments industry began transitioning from 6-digit BINs to 8-digit BINs:
-- **Old Format**: 6-digit BIN + account number + check digit = 16 total digits
-- **New Format**: 8-digit BIN + account number + check digit = 16-19 total digits
+## 🚀 Quick Start
 
-**Important**: The Luhn algorithm validates the ENTIRE card number, not individual components. Whether the BIN is 6, 7, or 8 digits doesn't affect validation.
+### Installation
 
-### How Luhn Works
+```bash
+# Clone the repository
+git clone https://github.com/juancarlosmunera/pci-card_detector.git
+cd pci-card_detector
 
-```python
-# Example: Validate 4532148803436467 (valid Visa)
-
-Step 1: Start from the right, double every second digit
-4  5  3  2  1  4  8  8  0  3  4  3  6  4  6  7
-×2    ×2    ×2    ×2    ×2    ×2    ×2    ×2
-
-8  5  6  2  2  4  16 8  0  3  8  3  12 4  12 7
-
-Step 2: If doubled digit > 9, subtract 9
-8  5  6  2  2  4  7  8  0  3  8  3  3  4  3  7
-
-Step 3: Sum all digits
-8+5+6+2+2+4+7+8+0+3+8+3+3+4+3+7 = 70
-
-Step 4: Check if sum % 10 == 0
-70 % 10 = 0 ✓ VALID
+# Run tests (optional but recommended)
+python test_card_detector.py
 ```
 
-The algorithm works on the complete number regardless of internal structure.
+### Basic Usage
 
-## Installation
-
-### Requirements
-- Python 3.7+
-- No external dependencies (uses standard library only)
-
-### Setup
 ```bash
-# Clone or download the script
-git clone https://github.com/pci-dss/card-detector/card-detector.git
-cd card-detector
-
-# Make executable (optional)
-chmod +x card_detector.py
-```
-
-## Usage
-
-### Command Line Interface
-
-#### Scan a Single CSV File
-```bash
+# Scan a CSV file
 python card_detector.py --csv transactions.csv
-```
 
-#### Scan with Custom Delimiter
-```bash
-# Tab-delimited
-python card_detector.py --csv data.tsv --delimiter $'\t'
-
-# Pipe-delimited
-python card_detector.py --csv data.txt --delimiter '|'
-```
-
-#### Scan a Text/Log File
-```bash
+# Scan a log file
 python card_detector.py --file application.log
+
+# Scan entire directory with report
+python card_detector.py --directory /data --output findings.csv
 ```
 
-#### Scan Entire Directory
-```bash
-python card_detector.py --directory /path/to/data
-```
-
-#### Generate CSV Report
-```bash
-python card_detector.py --directory /data --output findings_report.csv
-```
-
-### Use as Python Module
+### Python Module Usage
 
 ```python
 from card_detector import CreditCardDetector
 
-# Initialize detector
 detector = CreditCardDetector()
 
-# Example 1: Validate a single number
-is_valid = detector.luhn_check("4532148803436467")
-print(f"Valid: {is_valid}")  # True
+# Validate a card number
+is_valid = detector.luhn_check("4532148803436467")  # Returns True
 
-# Example 2: Identify card brand
-brand = detector.identify_card_brand("4532148803436467")
-print(f"Brand: {brand}")  # Visa
+# Identify card brand
+brand = detector.identify_card_brand("4532148803436467")  # Returns "Visa"
 
-# Example 3: Search text for card numbers
-text = """
-Customer payment information:
-Card: 4532-1488-0343-6467
-Transaction ID: 12345
-"""
+# Search text for card numbers
+text = "Payment: 4532-1488-0343-6467"
 findings = detector.find_card_numbers(text)
-for finding in findings:
-    print(f"Found: {finding['masked_number']} ({finding['card_brand']})")
+print(findings[0]['masked_number'])  # 453214...6467
 
-# Example 4: Scan CSV programmatically
-findings = detector.scan_csv("customers.csv")
+# Scan files programmatically
+findings = detector.scan_csv("data.csv")
 detector.generate_report(findings, "report.csv")
-
-# Example 5: Scan directory
-findings = detector.scan_directory("/var/logs", extensions=['.log', '.txt'])
-print(f"Total findings: {len(findings)}")
 ```
 
-## Supported Card Formats
+---
 
-The detector recognizes various formatting styles:
+## 📋 Requirements
+
+- Python 3.7 or higher
+- No external dependencies (standard library only)
+
+---
+
+## 🎯 Use Cases
+
+### PCI-DSS Compliance
+
+#### 1. Pre-Assessment Discovery
+Scan your environment before your annual assessment to find unexpected cardholder data:
+```bash
+python card_detector.py --directory /production --output pre_assessment.csv
+```
+
+#### 2. Scope Validation (Requirement 12.5.2)
+Verify card data doesn't exist outside your defined CDE:
+```bash
+python card_detector.py --directory /out_of_scope --output scope_validation.csv
+```
+
+#### 3. Log Analysis (Requirement 10.2)
+Ensure logs don't contain inadvertent cardholder data:
+```bash
+python card_detector.py --directory /var/log --output log_analysis.csv
+```
+
+#### 4. Data Retention Validation (Requirement 3.1)
+Confirm old data has been properly purged:
+```bash
+python card_detector.py --csv archived_transactions.csv
+```
+
+#### 5. Third-Party Data Validation
+Verify vendor data doesn't contain unexpected CHD:
+```bash
+python card_detector.py --directory /vendor_data --output vendor_scan.csv
+```
+
+### Development & DevOps
+
+```bash
+# Prevent card numbers from entering your codebase
+python card_detector.py --directory ./src
+
+# Automated compliance checks in CI/CD
+if python card_detector.py --csv new_data.csv; then
+  echo "✓ No card data detected"
+else
+  echo "✗ Card data found - pipeline failed"
+  exit 1
+fi
+```
+
+---
+
+## 🔍 How It Works
+
+### The Luhn Algorithm
+
+The tool uses the [Luhn algorithm](https://en.wikipedia.org/wiki/Luhn_algorithm) (mod-10 checksum) to validate credit card numbers:
+
+1. Starting from the right, double every second digit
+2. If doubling results in a number > 9, subtract 9
+3. Sum all digits
+4. If sum % 10 == 0, the number is valid
+
+**Example: Validating 4532148803436467**
 
 ```
-✓ 4532148803436467           (no spaces)
-✓ 4532-1488-0343-6467        (dashes)
-✓ 4532 1488 0343 6467        (spaces)
-✓ 378282246310005            (15-digit Amex)
-✓ 6011111111111117           (16-digit Discover)
+Digits:    4  5  3  2  1  4  8  8  0  3  4  3  6  4  6  7
+Double:    ×2    ×2    ×2    ×2    ×2    ×2    ×2    ×2
+Result:    8  5  6  2  2  4  7  8  0  3  8  3  3  4  3  7
+Sum:       70
+Check:     70 % 10 = 0 ✓ VALID
 ```
 
-## Card Brand Detection
+### Modern BIN Support
 
-| Brand | IIN Pattern | Digits |
-|-------|-------------|--------|
-| Visa | 4 | 13, 16, 19 |
-| Mastercard | 51-55, 2221-2720 | 16 |
-| American Express | 34, 37 | 15 |
-| Discover | 6011, 622126-622925, 644-649, 65 | 16 |
-| Diners Club | 300-305, 36, 38 | 14 |
-| JCB | 3528-3589 | 16 |
+The Luhn algorithm works regardless of BIN length (6-8 digits) because it validates the entire card number, not individual components. Supports:
 
-## Output Format
+- 13-digit cards (some Visa)
+- 15-digit cards (American Express)
+- 16-digit cards (most brands)
+- 19-digit cards (modern extended format)
+
+---
+
+## 📊 Output Examples
 
 ### Console Output
+
 ```
 ⚠ WARNING: 2 potential credit card number(s) detected!
 
@@ -178,197 +187,173 @@ Finding #1:
 Finding #2:
   File: backup.log
   Location: Line 1247
-  Masked Number: 378282...0005
-  Card Brand: Amex
-  Format: 378282246310005
-  Length: 15 digits
+  Masked Number: 542523...9903
+  Card Brand: Mastercard
+  Format: 5425233430109903
+  Length: 16 digits
 
 ================================================================================
 ```
 
 ### CSV Report
+
 ```csv
 file,row,column,line,masked_number,card_brand,original_format,length
 transactions.csv,5,3,,453214...6467,Visa,4532-1488-0343-6467,16
-backup.log,,,1247,378282...0005,Amex,378282246310005,15
+backup.log,,,1247,542523...9903,Mastercard,5425233430109903,16
 ```
-
-## PCI-DSS Compliance Use Cases
-
-### 1. Pre-Assessment Discovery
-```bash
-# Scan all systems before your assessment
-python card_detector.py --directory /data --output pre_assessment.csv
-```
-
-### 2. Scope Validation (Requirement 12.5.2)
-```bash
-# Verify card data isn't stored in unexpected locations
-python card_detector.py --directory /backups --output scope_validation.csv
-```
-
-### 3. Log Analysis (Requirement 10.2)
-```bash
-# Check logs for inadvertent card data logging
-python card_detector.py --file /var/log/application.log
-```
-
-### 4. Data Retention Validation (Requirement 3.1)
-```bash
-# Find card data that should have been purged
-python card_detector.py --csv old_transactions.csv
-```
-
-### 5. Third-Party Data Validation
-```bash
-# Verify vendor data doesn't contain unexpected CHD
-python card_detector.py --directory /vendor_data
-```
-
-## Security Considerations
-
-### What This Tool Does
-✓ Detects potential card numbers using Luhn validation<br>
-✓ Masks numbers in output (shows only BIN + last 4)<br>
-✓ Generates reports for compliance documentation<br>
-✓ Helps identify data storage you didn't know about<br>
-
-### What This Tool Does NOT Do
-✗ Store or transmit any discovered card numbers<br>
-✗ Test card numbers against live payment systems<br>
-✗ Guarantee 100% detection (obfuscated or encrypted data may not be found)<br>
-✗ Replace proper PCI-DSS assessment by a QSA<br>
-
-### Best Practices
-1. **Run on isolated systems** - Don't run on production databases directly<br>
-2. **Secure the output** - Reports contain masked numbers but should still be protected<br>
-3. **Delete reports after use** - Don't keep findings longer than necessary<br>
-4. **Use read-only access** - Script only reads files, but use read-only permissions<br>
-5. **Log all scans** - Maintain audit trail of discovery activities<br>
-
-## Technical Details
-
-### False Positives
-The Luhn algorithm can validate numbers that aren't actually credit cards:
-- Some phone numbers
-- Random number sequences
-- Account numbers from other systems
-
-**Mitigation**: The script includes IIN (card brand) validation to reduce false positives.
-
-### False Negatives
-The script may miss:
-- Encrypted or hashed card numbers
-- Card numbers split across multiple fields
-- Obfuscated or encoded data
-- Numbers stored in binary formats
-- Card numbers in images or PDFs (requires OCR)
-
-### Performance
-- **CSV Files**: ~1-2 MB/second (depends on column count)
-- **Text Files**: ~5-10 MB/second
-- **Large Directories**: Progress shown per file
-
-## Extending the Script
-
-### Add Support for PDF Files
-```python
-# Install required library
-pip install PyPDF2
-
-# Add to scan_directory method
-if file_path.suffix.lower() == '.pdf':
-    findings = self.scan_pdf(str(file_path))
-```
-
-### Add Support for Excel Files
-```python
-# Install required library
-pip install openpyxl
-
-# Add Excel scanning method
-def scan_excel(self, excel_path: str) -> List[Dict]:
-    import openpyxl
-    wb = openpyxl.load_workbook(excel_path)
-    # Implement cell-by-cell scanning
-```
-
-### Add Real-Time Monitoring
-```python
-# Install required library
-pip install watchdog
-
-# Monitor directory for new files
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-```
-
-## Testing
-
-### Test with Known Valid Numbers
-```python
-# These are test numbers (will not process on real systems)
-test_numbers = [
-    "4532148803436467",  # Visa
-    "5425233430109903",  # Mastercard
-    "378282246310005",   # Amex
-    "6011111111111117",  # Discover
-]
-
-detector = CreditCardDetector()
-for number in test_numbers:
-    assert detector.luhn_check(number), f"Failed: {number}"
-    print(f"✓ {detector.identify_card_brand(number)}: {number}")
-```
-
-## Troubleshooting
-
-### "No card numbers detected" but you know they exist
-- Check file encoding (try UTF-8, Latin-1)
-- Verify card numbers aren't encrypted
-- Check if numbers are split across columns
-- Look for unusual formatting (e.g., parentheses, extra characters)
-
-### Too many false positives
-- Review the IIN patterns in `CARD_PATTERNS`
-- Add additional validation (e.g., length checks)
-- Filter by context (e.g., only in fields named "card_number")
-
-### Performance issues with large files
-- Process in chunks
-- Use multiprocessing for directory scans
-- Filter by file size before scanning
-
-## License
-
-MIT License - See LICENSE file for details
-
-## Disclaimer
-
-This tool is provided for PCI-DSS compliance and risk management purposes only. Always follow your organization's security policies and legal requirements when handling cardholder data.
-
-## Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request
-
-## Support
-
-For issues, questions, or feature requests:
-- Open an issue on GitHub
-- Contact: jcmunera@cybersecpro.me
-
-## Related Resources
-
-- [PCI Security Standards Council](https://www.pcisecuritystandards.org/)
-- [PCI DSS v4.0.1 Requirements](https://docs-prv.pcisecuritystandards.org/PCI%20DSS/Standard/PCI-DSS-v4_0_1.pdf)
-- [Luhn Algorithm on Wikipedia](https://en.wikipedia.org/wiki/Luhn_algorithm)
-- [BIN Database](https://binlist.net/)
 
 ---
 
+## 🔐 Security & Privacy
 
+### What This Tool Does ✅
 
+- Scans files locally (no data transmission)
+- Masks all numbers in output (first 6 + last 4 only)
+- Read-only operation (never modifies files)
+- Generates compliance documentation
+
+### What This Tool Does NOT Do ❌
+
+- Store or transmit card numbers
+- Test against live payment systems
+- Guarantee 100% detection (encrypted data won't be found)
+- Replace proper PCI-DSS assessment by a QSA
+
+### Best Practices
+
+1. **Run on isolated systems** - Use copies of data when possible
+2. **Secure the output** - Reports contain masked data but should be protected
+3. **Delete reports after use** - Don't retain longer than necessary
+4. **Use read-only access** - Run with minimal required permissions
+5. **Log your scans** - Maintain audit trail for compliance
+
+---
+
+## 🛠️ Advanced Usage
+
+### Custom File Extensions
+
+```bash
+python card_detector.py --directory /data --extensions .csv,.log,.txt
+```
+
+### Custom Delimiter
+
+```bash
+python card_detector.py --csv data.tsv --delimiter $'\t'
+```
+
+### Integration with Other Tools
+
+```python
+from card_detector import CreditCardDetector
+
+# Use with pandas
+import pandas as pd
+df = pd.read_csv("data.csv")
+detector = CreditCardDetector()
+
+for col in df.columns:
+    for value in df[col]:
+        if detector.luhn_check(str(value)):
+            print(f"Found card in {col}: {value}")
+```
+
+---
+
+## 🧪 Testing
+
+Run the test suite to verify everything works:
+
+```bash
+python test_card_detector.py
+```
+
+The test suite includes:
+- Luhn algorithm validation tests
+- Card brand detection tests
+- Text search functionality tests
+- Modern BIN length support tests
+- Sample file generation
+
+---
+
+## 📖 Documentation
+
+- **Full Documentation:** [cybersecpro.me/projects/card-detector](https://cybersecpro.me/projects/card-detector/)
+- **Blog Post:** [Finding Hidden Cardholder Data](https://cybersecpro.me/posts/finding-hidden-cardholder-data/)
+- **PCI-DSS Guide:** [Essential Best Practices](https://cybersecpro.me/posts/pci-dss-compliance-best-practices/)
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Here's how you can help:
+
+### Report Issues
+Found a bug? Have a feature request? [Open an issue](https://github.com/juancarlosmunera/pci-card_detector/issues)
+
+### Submit Pull Requests
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Suggest Improvements
+Have ideas? [Start a discussion](https://github.com/juancarlosmunera/pci-card_detector/discussions)
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 👨‍💻 Author
+
+**Juan Carlos Munera**
+- Former Qualified Security Assessor (QSA)
+- Cybersecurity & Compliance Professional
+- Website: [cybersecpro.me](https://cybersecpro.me)
+- LinkedIn: [juancarlosmunera](https://linkedin.com/in/juancarlosmunera)
+
+---
+
+## 🙏 Acknowledgments
+
+- Built from real-world PCI-DSS assessment experience
+- Inspired by the need for accessible compliance tools
+- Thanks to the open source community for feedback and contributions
+
+---
+
+## ⭐ Support
+
+If you find this tool useful:
+- ⭐ Star this repository
+- 🐛 Report bugs or request features via [issues](https://github.com/juancarlosmunera/pci-card_detector/issues)
+- 📢 Share with others who might benefit
+- 💼 Connect on [LinkedIn](https://linkedin.com/in/juancarlosmunera)
+
+---
+
+## 📚 Related Resources
+
+- [PCI Security Standards Council](https://www.pcisecuritystandards.org/)
+- [PCI DSS v4.0 Requirements](https://docs-prv.pcisecuritystandards.org/PCI%20DSS/Standard/PCI-DSS-v4_0.pdf)
+- [Luhn Algorithm on Wikipedia](https://en.wikipedia.org/wiki/Luhn_algorithm)
+- [My PCI-DSS Blog Series](https://cybersecpro.me/tags/pci-dss/)
+
+---
+
+## ⚠️ Disclaimer
+
+This tool is provided for compliance and security purposes only. It does not replace professional PCI-DSS assessment by a Qualified Security Assessor. Always follow your organization's security policies and consult with qualified professionals for production deployments.
+
+---
+
+**Made with ❤️ by a former QSA to help organizations achieve better security compliance**
