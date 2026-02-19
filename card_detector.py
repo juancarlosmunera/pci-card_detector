@@ -23,8 +23,11 @@ import csv
 import os
 import sqlite3
 import tempfile
+import base64
+import urllib.parse
+import html as html_mod
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import argparse
 
 # ── Optional dependency detection ────────────────────────────────────────────
@@ -96,8 +99,97 @@ class CreditCardDetector:
         'JCB': r'^(?:2131|1800|35\d{3})\d{11}$',                       # 16 digits
     }
 
-    def __init__(self):
+    def __init__(self, decode_mode: bool = False):
         self.findings = []
+        self.decode_mode = decode_mode
+
+    # ── Encoding-aware detection ──────────────────────────────────────────────
+
+    # Schemes attempted in decode mode, in order of specificity.
+    # Each entry is (label, callable) where callable takes a str and returns
+    # a decoded str, or raises an exception on failure.
+    _ENCODINGS = [
+        # URL / percent-encoding  (%34%31%31%31...)
+        ('url',
+         lambda t: urllib.parse.unquote(t, errors='strict')),
+
+        # HTML entities  (&#52;&#49;... or &amp; etc.)
+        ('html-entity',
+         lambda t: html_mod.unescape(t)),
+
+        # Python-style unicode/hex escapes  (\u0034, \x34)
+        ('unicode-escape',
+         lambda t: t.encode('raw_unicode_escape').decode('unicode_escape')),
+    ]
+
+    def _decode_variants(self, text: str) -> List[Tuple[str, str]]:
+        """
+        Attempts to decode *text* through several common encoding schemes.
+
+        Returns a list of (decoded_text, encoding_label) pairs for every scheme
+        that (a) produces output different from the original and (b) yields
+        only printable characters — reducing false-positive noise from random
+        binary garbage.
+
+        Schemes tried:
+          - URL / percent-encoding    (%XX)
+          - HTML entities             (&#NN; / &name;)
+          - Unicode / hex escapes     (\\uXXXX / \\xXX)
+          - Base64 substrings         (token ≥ 20 chars)
+          - Hex substrings            (even-length run ≥ 26 hex chars)
+        """
+        variants: List[Tuple[str, str]] = []
+        seen: set = set()
+
+        def _add(decoded: str, label: str) -> None:
+            if decoded != text and decoded not in seen and decoded.isprintable():
+                seen.add(decoded)
+                variants.append((decoded, label))
+
+        # ── Whole-text decodings ──────────────────────────────────────────────
+        for label, fn in self._ENCODINGS:
+            try:
+                decoded = fn(text)
+                _add(decoded, label)
+            except Exception:
+                pass
+
+        # ── Base64 substrings ─────────────────────────────────────────────────
+        # Require ≥ 20 chars so a 13-digit card (min) has room once encoded.
+        for m in re.finditer(r'[A-Za-z0-9+/]{20,}={0,2}', text):
+            token = m.group()
+            # Normalise padding
+            pad = (4 - len(token) % 4) % 4
+            try:
+                raw = base64.b64decode(token + '=' * pad)
+                decoded = raw.decode('utf-8')
+                _add(decoded, 'base64')
+            except Exception:
+                try:
+                    decoded = raw.decode('latin-1')
+                    _add(decoded, 'base64')
+                except Exception:
+                    pass
+
+        # ── Hex substrings ────────────────────────────────────────────────────
+        # 13-digit min card → 13 bytes → 26 hex chars minimum.
+        for m in re.finditer(r'\b[0-9a-fA-F]{26,}\b', text):
+            token = m.group()
+            if len(token) % 2 != 0:
+                continue
+            try:
+                raw = bytes.fromhex(token)
+                decoded = raw.decode('utf-8')
+                _add(decoded, 'hex')
+            except Exception:
+                try:
+                    decoded = raw.decode('latin-1')
+                    if all(c.isprintable() or c == ' ' for c in decoded):
+                        _add(decoded, 'hex')
+                except Exception:
+                    pass
+
+        return variants
 
     # ── Core detection ────────────────────────────────────────────────────────
 
@@ -154,15 +246,11 @@ class CreditCardDetector:
                 return brand
         return 'Unknown'
 
-    def find_card_numbers(self, text: str) -> List[Dict]:
+    def _match_card_numbers(self, text: str,
+                            encoding: str = 'plain') -> List[Dict]:
         """
-        Searches text for potential card numbers and validates them.
-
-        Args:
-            text: Text to search
-
-        Returns:
-            List of dicts containing found card numbers and metadata
+        Core regex + Luhn scan on a single string.
+        All findings are tagged with *encoding* so callers know the source.
         """
         findings = []
         pattern = r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4,7}\b'
@@ -181,7 +269,44 @@ class CreditCardDetector:
                     'card_brand': brand,
                     'position': match.start(),
                     'length': len(clean_number),
+                    'detected_encoding': encoding,
                 })
+
+        return findings
+
+    def find_card_numbers(self, text: str) -> List[Dict]:
+        """
+        Searches text for potential card numbers and validates them.
+
+        When decode_mode is enabled (set via CreditCardDetector(decode_mode=True)
+        or --decode-mode on the CLI), the method also attempts to decode the text
+        through common obfuscation schemes before scanning:
+
+          - URL / percent-encoding  (%34%31...)
+          - HTML entities           (&#52;&#49;...)
+          - Unicode / hex escapes   (\\u0034, \\x34)
+          - Base64                  (NDExMTExMTExMTExMTExMQ==)
+          - Hex                     (343131313131313131313131)
+
+        Findings include a 'detected_encoding' field ('plain' when found in the
+        original text, or the scheme name when found after decoding).
+
+        Args:
+            text: Text to search
+
+        Returns:
+            List of dicts containing found card numbers and metadata
+        """
+        findings = self._match_card_numbers(text, encoding='plain')
+
+        if self.decode_mode:
+            seen_numbers = {f['masked_number'] for f in findings}
+            for decoded_text, encoding in self._decode_variants(text):
+                for finding in self._match_card_numbers(decoded_text, encoding):
+                    # Avoid reporting the same card number twice for this chunk
+                    if finding['masked_number'] not in seen_numbers:
+                        seen_numbers.add(finding['masked_number'])
+                        findings.append(finding)
 
         return findings
 
@@ -734,6 +859,9 @@ class CreditCardDetector:
             print(f"  Brand    : {finding['card_brand']}")
             print(f"  Format   : {finding['original_format']}")
             print(f"  Length   : {finding['length']} digits")
+            enc = finding.get('detected_encoding', 'plain')
+            if enc and enc != 'plain':
+                print(f"  Encoding : {enc}  [found after decoding]")
 
         print("\n" + "=" * 80)
 
@@ -756,7 +884,7 @@ class CreditCardDetector:
             'source', 'file', 'table', 'column', 'row_id',
             'sheet', 'row', 'line', 'page',
             'masked_number', 'card_brand', 'original_format', 'length',
-            'context', 'cell_content',
+            'detected_encoding', 'context', 'cell_content',
         ]
 
         with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
@@ -860,8 +988,19 @@ Examples:
     parser.add_argument('--output', metavar='FILE',
                         help='Save findings report to a CSV file')
 
+    # ── Decode mode ───────────────────────────────────────────────────────────
+    parser.add_argument(
+        '--decode-mode', action='store_true',
+        help=(
+            'Enable encoding-aware scanning. Before each text chunk is scanned, '
+            'the tool attempts to decode it through common obfuscation schemes '
+            '(URL/percent-encoding, HTML entities, Unicode/hex escapes, Base64, Hex). '
+            'Findings discovered after decoding are tagged with the encoding used.'
+        )
+    )
+
     args = parser.parse_args()
-    detector = CreditCardDetector()
+    detector = CreditCardDetector(decode_mode=args.decode_mode)
     findings = []
 
     # ── Dispatch ──────────────────────────────────────────────────────────────

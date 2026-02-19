@@ -20,6 +20,7 @@ Built by a former Qualified Security Assessor (QSA) to solve real-world complian
 - ✅ **Database Scanning** - SQLite (built-in), PostgreSQL, MySQL
 - ✅ **Cloud Storage** - Amazon S3, Google Cloud Storage, Azure Blob Storage
 - ✅ **Directory Scanning** - Recursive search through folder structures
+- ✅ **Decode Mode** - Detect card numbers hidden behind Base64, Hex, URL, HTML entity, and Unicode encoding
 - ✅ **Card Brand Detection** - Visa, Mastercard, Amex, Discover, JCB, Diners
 - ✅ **Secure Output** - Masked numbers (BIN + last 4 only)
 - ✅ **Compliance Reports** - CSV export for audit documentation
@@ -69,6 +70,10 @@ python card_detector.py --excel report.xlsx
 
 # Scan entire directory with report
 python card_detector.py --directory /data --output findings.csv
+
+# Suspect data may be encoded? Enable decode mode
+python card_detector.py --csv transactions.csv --decode-mode
+python card_detector.py --directory /data --decode-mode --output findings.csv
 ```
 
 ---
@@ -324,14 +329,14 @@ The tool uses the [Luhn algorithm](https://en.wikipedia.org/wiki/Luhn_algorithm)
 3. Sum all digits
 4. If sum % 10 == 0, the number is valid
 
-**Example: Validating 4532148803436467**
+**Example: Validating 4111111111111111** (standard Visa test card)
 
 ```
-Digits:    4  5  3  2  1  4  8  8  0  3  4  3  6  4  6  7
+Digits:    4  1  1  1  1  1  1  1  1  1  1  1  1  1  1  1
 Double:    ×2    ×2    ×2    ×2    ×2    ×2    ×2    ×2
-Result:    8  5  6  2  2  4  7  8  0  3  8  3  3  4  3  7
-Sum:       70
-Check:     70 % 10 = 0 ✓ VALID
+Result:    8  1  2  1  2  1  2  1  2  1  2  1  2  1  2  1
+Sum:       30
+Check:     30 % 10 = 0 ✓ VALID
 ```
 
 ### Modern BIN Support
@@ -384,10 +389,11 @@ Finding #3:
 ### CSV Report
 
 ```csv
-source,file,table,column,row_id,sheet,row,line,page,masked_number,card_brand,original_format,length,context,cell_content
-,transactions.csv,,,,,5,,,453214...6467,Visa,4532-1488-0343-6467,16,,4532-1488-...
-sqlite:app.db,,orders,notes,1042,,,,,542523...9903,Mastercard,5425233430109903,16,,5425233...
-s3://my-bucket/exports/q4.csv,s3://my-bucket/exports/q4.csv,,,,,18,,,378282...0005,Amex,378282246310005,15,,378282...
+source,file,table,column,row_id,sheet,row,line,page,masked_number,card_brand,original_format,length,detected_encoding,context,cell_content
+,transactions.csv,,,,,5,,,411111...1111,Visa,4111111111111111,16,plain,,4111111...
+sqlite:app.db,,orders,notes,1042,,,,,542523...9903,Mastercard,5425233430109903,16,plain,,5425233...
+s3://my-bucket/exports/q4.csv,s3://my-bucket/exports/q4.csv,,,,,18,,,378282...0005,Amex,378282246310005,15,plain,,378282...
+,application.log,,,,,47,,,411111...1111,Visa,4111111111111111,16,base64,NDExMTEx...,
 ```
 
 ---
@@ -397,12 +403,17 @@ s3://my-bucket/exports/q4.csv,s3://my-bucket/exports/q4.csv,,,,,18,,,378282...00
 ```python
 from card_detector import CreditCardDetector
 
+# Standard mode
 detector = CreditCardDetector()
 
+# Encoding-aware mode — tries to decode obfuscated data before scanning
+detector = CreditCardDetector(decode_mode=True)
+
 # ── Core validation ───────────────────────────────────────────────────────────
-detector.luhn_check("4532148803436467")        # → True
-detector.identify_card_brand("4532148803436467")  # → "Visa"
-detector.find_card_numbers("Card: 4532-1488-0343-6467")  # → list of findings
+detector.luhn_check("4111111111111111")           # → True
+detector.identify_card_brand("4111111111111111")  # → "Visa"
+detector.find_card_numbers("Card: 4111-1111-1111-1111")  # → list of findings
+# Each finding dict includes 'detected_encoding': 'plain' | 'base64' | 'hex' | 'url' | ...
 
 # ── File scanners ─────────────────────────────────────────────────────────────
 detector.scan_csv("data.csv", delimiter=",")
@@ -453,6 +464,106 @@ detector.save_report_csv(findings, "report.csv")
 4. **Secure the output** - Reports contain masked data but should still be protected
 5. **Delete reports after use** - Don't retain longer than necessary
 6. **Log your scans** - Maintain an audit trail for compliance
+
+---
+
+## 🔓 Decode Mode
+
+Some systems store or log card numbers in encoded form — intentionally obfuscated, or simply because a middleware layer applied an encoding before writing the data. Standard scanning misses these entirely.
+
+Enable `--decode-mode` to instruct the tool to attempt decoding each text chunk through five common schemes before scanning it:
+
+| Encoding | Example of hidden card `4111111111111111` |
+|---|---|
+| URL / percent | `%34%31%31%31%31%31%31%31%31%31%31%31%31%31%31%31` |
+| HTML entities | `&#52;&#49;&#49;&#49;&#49;&#49;&#49;&#49;&#49;&#49;&#49;&#49;&#49;&#49;&#49;&#49;` |
+| Unicode escapes | `\u0034\u0031\u0031\u0031\u0031\u0031\u0031\u0031\u0031\u0031\u0031\u0031\u0031\u0031\u0031\u0031` |
+| Base64 | `NDExMTExMTExMTExMTExMQ==` |
+| Hex | `34313131313131313131313131313131` |
+
+Findings discovered after decoding are tagged with the encoding name so you know exactly how the number was hidden.
+
+### CLI usage
+
+```bash
+# Add --decode-mode to any scan command
+python card_detector.py --csv transactions.csv --decode-mode
+python card_detector.py --file application.log --decode-mode --output findings.csv
+python card_detector.py --directory /data --decode-mode
+python card_detector.py --sqlite app.db --decode-mode
+python card_detector.py --s3-bucket my-bucket --decode-mode
+```
+
+### Console output with decode mode
+
+```
+[WARNING] 2 potential credit card number(s) detected!
+
+================================================================================
+
+Finding #1:
+  Source   : transactions.csv
+  Location : Row 3, Column 2
+  Masked   : 411111...1111
+  Brand    : Visa
+  Format   : 4111111111111111
+  Length   : 16 digits
+
+Finding #2:
+  Source   : application.log
+  Location : Line 47
+  Masked   : 411111...1111
+  Brand    : Visa
+  Format   : 4111111111111111
+  Length   : 16 digits
+  Encoding : base64  [found after decoding]
+
+================================================================================
+```
+
+The `Encoding` line only appears when the number was found after decoding — plain-text findings are unchanged.
+
+### CSV report with decode mode
+
+The `detected_encoding` column in the CSV report records how each number was found:
+
+```csv
+source,file,...,masked_number,card_brand,original_format,length,detected_encoding,...
+,transactions.csv,...,411111...1111,Visa,4111111111111111,16,plain,...
+,application.log,...,411111...1111,Visa,4111111111111111,16,base64,...
+```
+
+### Python API — decode mode
+
+```python
+from card_detector import CreditCardDetector
+
+# Enable at construction time — applies to all scan methods
+detector = CreditCardDetector(decode_mode=True)
+
+findings = detector.scan_csv("transactions.csv")
+findings += detector.scan_text_file("application.log")
+findings += detector.scan_sqlite("app.db")
+
+for f in findings:
+    if f['detected_encoding'] != 'plain':
+        print(f"Encoded card found! Scheme: {f['detected_encoding']}, "
+              f"Masked: {f['masked_number']}")
+
+detector.generate_report(findings, "findings.csv")
+```
+
+### When to use decode mode
+
+| Scenario | Recommendation |
+|---|---|
+| Standard compliance scan | Off (default) — faster, fewer false positives |
+| Suspicious log files or API responses | On — check for URL/HTML encoding |
+| Data from third-party vendors or ETL pipelines | On — Base64 and Hex are common transport encodings |
+| Internal application databases | On — some ORMs or serialisers apply Base64 to BLOB columns |
+| Very large datasets where performance matters | Off, then re-run with `--decode-mode` only on suspect files |
+
+> **Note:** Decode mode increases scan time and may surface additional false positives (other base64/hex strings that happen to decode into Luhn-valid digit sequences). Review flagged encoded findings carefully.
 
 ---
 
